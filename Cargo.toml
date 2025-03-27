@@ -1,0 +1,8 @@
+[package]
+name = "cipher-solver-comp3260"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.31.1"
+egui_file = "0.22.1"
