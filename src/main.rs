@@ -3,6 +3,16 @@
 use eframe::egui;
 use itertools::{structs, Itertools, Permutations};
 
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
+
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
+
+const COMMON_TRIGRAMS: &[&str] = &[
+    "the", "and", "ing", "ent", "ion", "her", "for", "tha", "nth", "int",
+];
+
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([600.0, 340.0]),
@@ -69,6 +79,7 @@ impl eframe::App for MyApp {
 
                         let result = decrypter.decrypt(&self.my_string);
 
+                        println!("Decrypted text:");
                         println!("{}", result);
                     }
 
@@ -113,39 +124,77 @@ impl Decrypter {
     }
 
     fn decrypt_columnar(&self, text: &str) -> String {
+        let mut heap = BinaryHeap::new();
         // Find the factors of the text length
         let factors = compute_factors(text.len());
         println!("Factors: {:?}", factors);
 
         // Constants for configuration
-        const MAX_KEY_LENGTH: usize = 7;
-        const ENGLISH_PATTERN: &str = "th";
-        const MIN_PATTERN_OCCURRENCES: usize = 40;
+        const MAX_KEY_LENGTH: usize = 10;
+
+        // Count total permutations first
+        let mut total_perms = 0;
+        let mut permutation_counts = vec![0; MAX_KEY_LENGTH + 1];
+
+        for key_length in 1..=MAX_KEY_LENGTH {
+            let count = (0..key_length).permutations(key_length).count();
+            permutation_counts[key_length] = count;
+            total_perms += count;
+        }
+
+        // Setup progress bar
+        let pb = ProgressBar::new(total_perms as u64);
+        pb.set_style(ProgressStyle::with_template(
+            "[{elapsed_precise}] [{wide_bar}] {pos}/{len} ({percent}%)",
+        ).unwrap());
 
         // Try different key lengths and their permutations
         for key_length in 1..=MAX_KEY_LENGTH {
             let permutations = (0..key_length).permutations(key_length);
 
             for permutation in permutations {
-                let decrypted_text = self.columnar_inv(text, &permutation);
-
-                // Check if the decrypted text resembles English
-                if self.is_likely_english(&decrypted_text, ENGLISH_PATTERN, MIN_PATTERN_OCCURRENCES) {
-                    println!("Possible decryption found: {}", decrypted_text);
-                }
+                let decrypted_text = self.columnar_inv(text, &permutation, false);
+                Decrypter::update_top_candidates(&mut heap, decrypted_text, 3);
+                pb.inc(1);
             }
+        }
+
+        pb.finish_with_message("Brute-force complete.");
+
+        let mut best: Vec<_> = heap.into_sorted_vec();
+        best.reverse();
+        for Reverse((score, s)) in best {
+            println!("Score {}: {}", score, s);
         }
 
         // Return the original text if no better solution is found
         text.to_owned()
     }
+    fn update_top_candidates(
+        heap: &mut BinaryHeap<Reverse<(usize, String)>>,
+        candidate: String,
+        max_size: usize,
+    ) {
+        let score = Decrypter::english_score(&candidate);
+        heap.push(Reverse((score, candidate)));
 
-    /// Checks if text resembles English based on pattern occurrence frequency
-    fn is_likely_english(text: &str, pattern: &str, min_occurrences: usize) -> bool {
-        text.matches(pattern).count() >= min_occurrences
+        if heap.len() > max_size {
+            heap.pop(); // remove lowest score (wrapped in Reverse)
+        }
     }
 
-    fn columnar_inv(&self, text: &str, key: &Vec<usize>) -> String {
+    fn english_score(text: &str) -> usize {
+        let mut score = 0;
+
+        for trigram in COMMON_TRIGRAMS {
+            let count = text.matches(trigram).count();
+            score += count;
+        }
+
+        score
+    }
+
+    fn columnar_inv(&self, text: &str, key: &Vec<usize>, transpose: bool) -> String {
         // will be = key[(n mod (key.len))]
         let n = text.len();
         // text length
@@ -170,7 +219,12 @@ impl Decrypter {
             let row_len = if col < r {s_l + 1} else {s_l};
             for row in 0..row_len {
                 let c_index = offset + row;
-                output[row * k_l + col] = chars[c_index];
+
+                if transpose {
+                    output[col * s_l + row + (if col < r { col } else {r})] = chars[c_index];
+                } else {
+                    output[row * k_l + col] = chars[c_index];
+                }
             }
             offset += row_len;
         }
