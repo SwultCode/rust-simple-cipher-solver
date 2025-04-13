@@ -703,14 +703,10 @@ impl Decrypter {
             if key.len() == period {
                 let mut result = String::new();
                 for (i, c) in text.chars().enumerate() {
-                    if c.is_ascii_alphabetic() {
-                        let shift = key[i % period];
-                        let base = if c.is_uppercase() { 'A' } else { 'a' } as u8;
-                        let decrypted = ((c as u8 - base + 26 - shift as u8) % 26 + base) as char;
-                        result.push(decrypted);
-                    } else {
-                        result.push(c);
-                    }
+                    let shift = key[i % period];
+                    let base = if c.is_uppercase() { 'A' } else { 'a' } as u8;
+                    let decrypted = ((c as u8 - base + 26 - shift as u8) % 26 + base) as char;
+                    result.push(decrypted);
                 }
 
                 let score = Self::english_score(&result) as f32;
@@ -753,7 +749,6 @@ impl Decrypter {
         
         // For each position in the key
         for (i, group) in char_groups.iter().enumerate() {
-            println!("Analyzing position {} ({} characters)", i, group.len());
             
             // Count frequencies in this group
             let mut freq_table = vec![0; 26];
@@ -775,8 +770,12 @@ impl Decrypter {
                 .map(|&(pos, _)| pos)
                 .collect();
 
-            println!("Top {} letters at position {}: {:?}", BEAUFORT_TOP_LETTERS, i, 
-                top_positions.iter().map(|&p| ((p as u8 + b'a') as char)).collect::<Vec<char>>());
+            // For each top letter, calculate what letter in the key would transform to 'E' in Beaufort
+            println!("Likely key letters at position {}: {:?}", i,
+                top_positions.iter().map(|&pos| {
+                    let cipher_letter = ((pos as u8 + b'a') as char);
+                    Self::beaufort_key_letter(cipher_letter)
+                }).collect::<Vec<char>>());
 
             // For each of the top positions, calculate the shift assuming it maps to 'E'
             let mut shifts = Vec::new();
@@ -819,14 +818,10 @@ impl Decrypter {
             if key.len() == period {
                 let mut result = String::new();
                 for (i, c) in text.chars().enumerate() {
-                    if c.is_ascii_alphabetic() {
-                        let shift = key[i % period];
-                        let base = if c.is_uppercase() { 'A' } else { 'a' } as u8;
-                        let decrypted = ((shift as u8 + 26 - (c as u8 - base)) % 26 + base) as char;
-                        result.push(decrypted);
-                    } else {
-                        result.push(c);
-                    }
+                    let shift = key[i % period];
+                    let base = if c.is_uppercase() { 'A' } else { 'a' } as u8;
+                    let decrypted = ((shift as u8 + 26 - (c as u8 - base)) % 26 + base) as char;
+                    result.push(decrypted);
                 }
 
                 let score = Self::english_score(&result) as f32;
@@ -1043,5 +1038,19 @@ impl Decrypter {
         //println!("Char groups: {:?}", output);
 
         output
+    }
+
+    /// Helper function to calculate what letter in the key would transform a given ciphertext letter to 'E' in Beaufort cipher
+    /// Returns the key letter that would transform ciphertext_letter to 'E'
+    /// Using the formula from the working decryption: decrypted = (shift + 26 - (ciphertext - base)) % 26 + base
+    fn beaufort_key_letter(ciphertext_letter: char) -> char {
+        let base = if ciphertext_letter.is_uppercase() { 'A' } else { 'a' } as u8;
+        let cipher_pos = (ciphertext_letter as u8 - base) as usize;
+        let e_pos = 4; // 'E' is position 4 (0-based)
+        
+        // We want: e_pos = (key_pos + 26 - cipher_pos) % 26
+        // Therefore: key_pos = (e_pos + cipher_pos) % 26
+        let key_pos = (e_pos + cipher_pos) % 26;
+        ((key_pos as u8 + b'a') as char)
     }
 }
